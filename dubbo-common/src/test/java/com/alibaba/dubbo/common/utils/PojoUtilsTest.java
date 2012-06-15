@@ -17,12 +17,17 @@ package com.alibaba.dubbo.common.utils;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
-import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import org.junit.Test;
 
@@ -80,6 +85,21 @@ public class PojoUtilsTest {
     public void test_pojo() throws Exception {
         assertObject(new Person());
         assertObject(new SerializablePerson());
+    }
+    
+    @Test
+    public void test_Map_List_pojo() throws Exception {
+        Map<String, List<Object>> map = new HashMap<String, List<Object>>();
+        
+        List<Object> list = new ArrayList<Object>();
+        list.add(new Person());
+        list.add(new SerializablePerson());
+        
+        map.put("k", list);
+        
+        Object generalize = PojoUtils.generalize(map);
+        Object realize = PojoUtils.realize(generalize, Map.class);
+        assertEquals(map, realize);
     }
 
     @Test
@@ -212,48 +232,235 @@ public class PojoUtilsTest {
         Object[] realize = (Object[]) PojoUtils.realize(generalize, Object[].class);
         assertArrayEquals(persons, realize);
     }
+    
+    // 循环测试
+    
+    public static class Parent {
+        String name;
+        
+        int age;
+        
+        Child child;
 
-    public static <T extends Comparable<T>> T min(T[] arr) {
-        if (arr == null || arr.length == 0)
-            return null;
-
-        T smallest = arr[0];
-        for (int i = 1; i < arr.length; ++i) {
-            if (smallest.compareTo(arr[i]) > 0) {
-                smallest = arr[i];
-            }
+        public static Parent getNewParent() {
+            return new Parent();
         }
-        return smallest;
-    }
-
-    public static <T extends Comparable<? super T>> T min2(T[] arr) {
-        if (arr == null || arr.length == 0)
-            return null;
-
-        T smallest = arr[0];
-        for (int i = 1; i < arr.length; ++i) {
-            if (smallest.compareTo(arr[i]) > 0) {
-                smallest = arr[i];
-            }
+        
+        public String getName() {
+            return name;
         }
-        return smallest;
-    }
 
-    public static <T extends Comparable<T> & Serializable> T max(T[] arr) {
-        if (arr == null || arr.length == 0)
-            return null;
-
-        T biggest = arr[0];
-        for (int i = 1; i < arr.length; ++i) {
-            if (biggest.compareTo(arr[i]) < 0) {
-                biggest = arr[i];
-            }
+        public void setName(String name) {
+            this.name = name;
         }
-        return biggest;
+
+        public int getAge() {
+            return age;
+        }
+
+        public void setAge(int age) {
+            this.age = age;
+        }
+
+        public Child getChild() {
+            return child;
+        }
+
+        public void setChild(Child child) {
+            this.child = child;
+        }
+    }
+    
+    public static class Child {
+        String toy;
+        
+        public String getToy() {
+            return toy;
+        }
+
+        public void setToy(String toy) {
+            this.toy = toy;
+        }
+
+        public Parent getParent() {
+            return parent;
+        }
+
+        public void setParent(Parent parent) {
+            this.parent = parent;
+        }
+
+        Parent parent;
+    }
+    
+    @Test
+    public void test_Loop_pojo() throws Exception {
+        Parent p = new Parent();
+        p.setAge(10);
+        p.setName("jerry");
+
+        Child c = new Child();
+        c.setToy("haha");
+        
+        p.setChild(c);
+        c.setParent(p);
+        
+        Object generalize = PojoUtils.generalize(p);
+        Parent parent = (Parent) PojoUtils.realize(generalize, Parent.class);
+        
+        assertEquals(10, parent.getAge());
+        assertEquals("jerry", parent.getName());
+        
+        assertEquals("haha", parent.getChild().getToy());
+        assertSame(parent, parent.getChild().getParent());
+    }
+    
+    @Test
+    public void test_Loop_Map() throws Exception {
+        Map<String, Object> map = new HashMap<String, Object>();
+        
+        map.put("k", "v");
+        map.put("m", map);
+     
+        Object generalize = PojoUtils.generalize(map);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ret = (Map<String, Object>) PojoUtils.realize(generalize, Map.class);
+        
+        assertEquals("v", ret.get("k"));
+        assertSame(ret, ret.get("m"));
+    }
+    
+    @Test
+    public void test_LoopPojoInMap() throws Exception {
+        Parent p = new Parent();
+        p.setAge(10);
+        p.setName("jerry");
+
+        Child c = new Child();
+        c.setToy("haha");
+        
+        p.setChild(c);
+        c.setParent(p);
+        
+        Map<String, Object> map = new HashMap<String, Object>();
+        map.put("k", p);
+        
+        Object generalize = PojoUtils.generalize(map);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> realize = (Map<String, Object>) PojoUtils.realize(generalize, Map.class, getType("getMapGenericType"));
+        
+        Parent parent = (Parent) realize.get("k");
+        
+        assertEquals(10, parent.getAge());
+        assertEquals("jerry", parent.getName());
+        
+        assertEquals("haha", parent.getChild().getToy());
+        assertSame(parent, parent.getChild().getParent());
+    }
+    
+    @Test
+    public void test_LoopPojoInList() throws Exception {
+        Parent p = new Parent();
+        p.setAge(10);
+        p.setName("jerry");
+        
+        Child c = new Child();
+        c.setToy("haha");
+        
+        p.setChild(c);
+        c.setParent(p);
+        
+        List<Object> list = new ArrayList<Object>();
+        list.add(p);
+        
+        Object generalize = PojoUtils.generalize(list);
+        @SuppressWarnings("unchecked")
+        List<Object> realize = (List<Object>) PojoUtils.realize(generalize, List.class, getType("getListGenericType"));
+        
+        Parent parent = (Parent) realize.get(0);
+        
+        assertEquals(10, parent.getAge());
+        assertEquals("jerry", parent.getName());
+        
+        assertEquals("haha", parent.getChild().getToy());
+        assertSame(parent, parent.getChild().getParent());
+    }
+    
+    @Test
+    public void test_PojoInList() throws Exception {
+        Parent p = new Parent();
+        p.setAge(10);
+        p.setName("jerry");
+        
+        List<Object> list = new ArrayList<Object>();
+        list.add(p);
+        
+        Object generalize = PojoUtils.generalize(list);
+        @SuppressWarnings("unchecked")
+        List<Object> realize = (List<Object>) PojoUtils.realize(generalize, List.class, getType("getListGenericType"));
+        
+        Parent parent = (Parent) realize.get(0);
+        
+        assertEquals(10, parent.getAge());
+        assertEquals("jerry", parent.getName());
     }
 
-    public static <T extends Comparable<T> & Serializable> T max2(Comparable<? extends Serializable>[] arr) {
-        return null;
+    public void setLong(long l){}
+    
+    public void setInt(int l){}
+    
+    public List<Parent> getListGenericType(){return null;};
+    public Map<String, Parent> getMapGenericType(){return null;};
+    
+    // java.lang.IllegalArgumentException: argument type mismatch
+    @Test
+    public void test_realize_LongPararmter_IllegalArgumentException() throws Exception {
+        Method method = PojoUtilsTest.class.getMethod("setLong", long.class);
+        assertNotNull(method);
+        
+        Object value = PojoUtils.realize("563439743927993", method.getParameterTypes()[0], method.getGenericParameterTypes()[0]);
+        
+        method.invoke(new PojoUtilsTest(), value);
+    }
+    
+    // java.lang.IllegalArgumentException: argument type mismatch
+    @Test
+    public void test_realize_IntPararmter_IllegalArgumentException() throws Exception {
+        Method method = PojoUtilsTest.class.getMethod("setInt", int.class);
+        assertNotNull(method);
+        
+        Object value = PojoUtils.realize("123", method.getParameterTypes()[0], method.getGenericParameterTypes()[0]);
+        
+        method.invoke(new PojoUtilsTest(), value);
     }
 
+    @Test
+    public void testStackOverflow() throws Exception {
+        Parent parent = Parent.getNewParent();
+        parent.setAge(Integer.MAX_VALUE);
+        String name = UUID.randomUUID().toString();
+        parent.setName(name);
+        Object generalize = PojoUtils.generalize(parent);
+        assertTrue(generalize instanceof Map);
+        Map map = (Map) generalize;
+        assertEquals(Integer.MAX_VALUE, map.get("age"));
+        assertEquals(name, map.get("name"));
+        
+        Parent realize = (Parent)PojoUtils.realize(generalize, Parent.class);
+        assertEquals(Integer.MAX_VALUE, realize.getAge());
+        assertEquals(name, realize.getName());
+    }
+
+    @Test
+    public void testGenerializeAndRealizeClass() throws Exception {
+        Object generalize = PojoUtils.generalize(Integer.class);
+        assertEquals(Integer.class.getName(), generalize);
+        Object real = PojoUtils.realize(generalize, Integer.class.getClass());
+        assertEquals(Integer.class, real);
+
+        generalize = PojoUtils.generalize(int[].class);
+        assertEquals(int[].class.getName(), generalize);
+        real = PojoUtils.realize(generalize, int[].class.getClass());
+        assertEquals(int[].class, real);
+    }
 }

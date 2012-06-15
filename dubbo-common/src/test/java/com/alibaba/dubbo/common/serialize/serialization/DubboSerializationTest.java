@@ -44,4 +44,5 @@ public class DubboSerializationTest extends AbstractSerializationPersionFailTest
     @Ignore("StackOverflowError")
     @Test(timeout=3000)
     public void test_LoopReference() throws Exception {}
+    
 }

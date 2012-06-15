@@ -15,16 +15,20 @@
  */
 package com.alibaba.dubbo.common;
 
+import static org.hamcrest.CoreMatchers.anyOf;
+import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.*;
-
-import static org.hamcrest.CoreMatchers.*;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import com.alibaba.dubbo.common.utils.CollectionUtils;
@@ -275,7 +279,7 @@ public class URLTest {
         Map<String, String> params = new HashMap<String, String>();
         params.put("version", "1.0.0");
         params.put("application", "morgan");
-        URL url2 = new URL("dubbo", "10.20.130.230", 20880, "context/path", params);
+        URL url2 = new URL("dubbo", "admin", "hello1234", "10.20.130.230", 20880, "context/path", params);
         
         assertEquals(url1, url2);
     }
@@ -533,4 +537,27 @@ public class URLTest {
         assertEquals("admin:hello1234@10.20.130.230:20880", url.getAuthority());
         assertEquals("/context/path?version=1.0.0&application=morgan", url.getFile());
     }
+
+    @Test
+    public void test_Anyhost() throws Exception {
+        URL url = URL.valueOf("dubbo://0.0.0.0:20880");
+        assertEquals("0.0.0.0", url.getHost());
+        assertTrue(url.isAnyHost());
+    }
+    
+    @Test
+    public void test_Localhost() throws Exception {
+        URL url = URL.valueOf("dubbo://127.0.0.1:20880");
+        assertEquals("127.0.0.1", url.getHost());
+        assertTrue(url.isLocalHost());
+        
+        url = URL.valueOf("dubbo://127.0.1.1:20880");
+        assertEquals("127.0.1.1", url.getHost());
+        assertTrue(url.isLocalHost());
+        
+        url = URL.valueOf("dubbo://localhost:20880");
+        assertEquals("localhost", url.getHost());
+        assertTrue(url.isLocalHost());
+    }
+    
 }

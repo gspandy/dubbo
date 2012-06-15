@@ -22,6 +22,7 @@ import java.io.InputStream;
  * Stream utils.
  * 
  * @author qian.lei
+ * @author ding.lid
  */
 
 public class StreamUtils
@@ -105,9 +106,6 @@ public class StreamUtils
 		};
 	}
 	
-	/**
-	 * @author ding.lid
-	 */
 	public static InputStream markSupportedInputStream(final InputStream is, final int markBufferSize) {
 	    if(is.markSupported()) {
 	        return is;
@@ -211,9 +209,6 @@ public class StreamUtils
         };
 	}
 	
-	/**
-	 * @author ding.lid
-	 */
 	public static InputStream markSupportedInputStream(final InputStream is) {
 	    return markSupportedInputStream(is, 1024);
 	}

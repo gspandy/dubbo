@@ -17,11 +17,10 @@ package com.alibaba.dubbo.rpc.cluster.support;
 
 import java.util.List;
 
-import com.alibaba.dubbo.common.Extension;
-import com.alibaba.dubbo.rpc.Invoker;
-import com.alibaba.dubbo.rpc.RpcException;
 import com.alibaba.dubbo.rpc.Invocation;
+import com.alibaba.dubbo.rpc.Invoker;
 import com.alibaba.dubbo.rpc.Result;
+import com.alibaba.dubbo.rpc.RpcException;
 import com.alibaba.dubbo.rpc.cluster.Cluster;
 import com.alibaba.dubbo.rpc.cluster.Directory;
 import com.alibaba.dubbo.rpc.cluster.LoadBalance;
@@ -31,12 +30,11 @@ import com.alibaba.dubbo.rpc.cluster.LoadBalance;
  * 
  * @author william.liangf
  */
-@Extension(AvailableCluster.NAME)
 public class AvailableCluster implements Cluster {
     
     public static final String NAME = "available";
 
-    public <T> Invoker<T> merge(Directory<T> directory) throws RpcException {
+    public <T> Invoker<T> join(Directory<T> directory) throws RpcException {
         
         return new AbstractClusterInvoker<T>(directory) {
             public Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
@@ -50,4 +48,5 @@ public class AvailableCluster implements Cluster {
         };
         
     }
+
 }

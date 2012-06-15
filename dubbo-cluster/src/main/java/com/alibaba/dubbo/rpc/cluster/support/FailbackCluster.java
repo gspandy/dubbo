@@ -15,7 +15,6 @@
  */
 package com.alibaba.dubbo.rpc.cluster.support;
 
-import com.alibaba.dubbo.common.Extension;
 import com.alibaba.dubbo.rpc.Invoker;
 import com.alibaba.dubbo.rpc.RpcException;
 import com.alibaba.dubbo.rpc.cluster.Cluster;
@@ -28,11 +27,11 @@ import com.alibaba.dubbo.rpc.cluster.Directory;
  * 
  * @author william.liangf
  */
-@Extension(FailbackCluster.NAME)
 public class FailbackCluster implements Cluster {
+
     public final static String NAME = "failback";    
 
-    public <T> Invoker<T> merge(Directory<T> directory) throws RpcException {
+    public <T> Invoker<T> join(Directory<T> directory) throws RpcException {
         return new FailbackClusterInvoker<T>(directory);
     }
 

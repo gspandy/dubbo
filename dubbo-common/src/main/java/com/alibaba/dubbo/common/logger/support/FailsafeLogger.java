@@ -15,19 +15,33 @@
  */
 package com.alibaba.dubbo.common.logger.support;
 
+import com.alibaba.dubbo.common.Version;
 import com.alibaba.dubbo.common.logger.Logger;
+import com.alibaba.dubbo.common.utils.NetUtils;
 
 public class FailsafeLogger implements Logger {
 
-	private final Logger logger;
+	private Logger logger;
 
 	public FailsafeLogger(Logger logger) {
 		this.logger = logger;
 	}
 
+	public Logger getLogger() {
+		return logger;
+	}
+
+	public void setLogger(Logger logger) {
+		this.logger = logger;
+	}
+
+	private String appendContextMessage(String msg) {
+	    return " [DUBBO] " + msg + ", dubbo version: " + Version.getVersion() + ", current host: " + NetUtils.getLogHost();
+	}
+
     public void trace(String msg, Throwable e) {
         try {
-            logger.trace(msg, e);
+            logger.trace(appendContextMessage(msg), e);
         } catch (Throwable t) {
         }
     }
@@ -41,14 +55,14 @@ public class FailsafeLogger implements Logger {
 
     public void trace(String msg) {
         try {
-            logger.trace(msg);
+            logger.trace(appendContextMessage(msg));
         } catch (Throwable t) {
         }
     }
 
 	public void debug(String msg, Throwable e) {
 		try {
-			logger.debug(msg, e);
+			logger.debug(appendContextMessage(msg), e);
 		} catch (Throwable t) {
 		}
 	}
@@ -62,49 +76,49 @@ public class FailsafeLogger implements Logger {
 
 	public void debug(String msg) {
 		try {
-			logger.debug(msg);
+			logger.debug(appendContextMessage(msg));
 		} catch (Throwable t) {
 		}
 	}
 
 	public void info(String msg, Throwable e) {
 		try {
-			logger.info(msg, e);
+			logger.info(appendContextMessage(msg), e);
 		} catch (Throwable t) {
 		}
 	}
 
 	public void info(String msg) {
 		try {
-			logger.info(msg);
+			logger.info(appendContextMessage(msg));
 		} catch (Throwable t) {
 		}
 	}
 
 	public void warn(String msg, Throwable e) {
 		try {
-			logger.warn(msg, e);
+			logger.warn(appendContextMessage(msg), e);
 		} catch (Throwable t) {
 		}
 	}
 
 	public void warn(String msg) {
 		try {
-			logger.warn(msg);
+			logger.warn(appendContextMessage(msg));
 		} catch (Throwable t) {
 		}
 	}
 
 	public void error(String msg, Throwable e) {
 		try {
-			logger.error(msg, e);
+			logger.error(appendContextMessage(msg), e);
 		} catch (Throwable t) {
 		}
 	}
 
 	public void error(String msg) {
 		try {
-			logger.error(msg);
+			logger.error(appendContextMessage(msg));
 		} catch (Throwable t) {
 		}
 	}
@@ -160,6 +174,14 @@ public class FailsafeLogger implements Logger {
 		} catch (Throwable t) {
 			return false;
 		}
+	}
+	
+	public boolean isErrorEnabled() {
+	    try {
+	        return logger.isErrorEnabled();
+	    } catch (Throwable t) {
+	        return false;
+	    }
 	}
 
 }

@@ -19,22 +19,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.alibaba.dubbo.common.Constants;
-import com.alibaba.dubbo.common.ExtensionLoader;
 import com.alibaba.dubbo.common.URL;
 import com.alibaba.dubbo.common.Version;
+import com.alibaba.dubbo.common.extension.ExtensionLoader;
 import com.alibaba.dubbo.common.logger.Logger;
 import com.alibaba.dubbo.common.logger.LoggerFactory;
 import com.alibaba.dubbo.common.utils.NetUtils;
 import com.alibaba.dubbo.rpc.Invocation;
 import com.alibaba.dubbo.rpc.Invoker;
 import com.alibaba.dubbo.rpc.Result;
-import com.alibaba.dubbo.rpc.RpcConstants;
 import com.alibaba.dubbo.rpc.RpcException;
 import com.alibaba.dubbo.rpc.cluster.Directory;
 import com.alibaba.dubbo.rpc.cluster.LoadBalance;
+import com.alibaba.dubbo.rpc.support.RpcUtils;
 
 /**
- * AbstractRpcRouter
+ * AbstractClusterInvoker
  * 
  * @author william.liangf
  * @author chao.liuc
@@ -51,16 +51,17 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
 
     private volatile Invoker<T>                stickyInvoker                     = null;
 
-    
     public AbstractClusterInvoker(Directory<T> directory) {
         this(directory, directory.getUrl());
     }
+    
     public AbstractClusterInvoker(Directory<T> directory, URL url) {
         if (directory == null)
             throw new IllegalArgumentException("service directory == null");
         
         this.directory = directory ;
-        this.availablecheck = url.getParameter(RpcConstants.CLUSTER_AVAILABLE_CHECK_KEY, RpcConstants.DEFAULT_CLUSTER_AVAILABLE_CHECK) ;
+        //sticky 需要检测 avaliablecheck 
+        this.availablecheck = url.getParameter(Constants.CLUSTER_AVAILABLE_CHECK_KEY, Constants.DEFAULT_CLUSTER_AVAILABLE_CHECK) ;
     }
 
     public Class<T> getInterface() {
@@ -98,7 +99,7 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
             return null;
         String methodName = invocation == null ? "" : invocation.getMethodName();
         
-        boolean sticky = invokers.get(0).getUrl().getMethodParameter(methodName,RpcConstants.CLUSTER_STICKY_KEY, RpcConstants.DEFAULT_CLUSTER_STICKY) ;
+        boolean sticky = invokers.get(0).getUrl().getMethodParameter(methodName,Constants.CLUSTER_STICKY_KEY, Constants.DEFAULT_CLUSTER_STICKY) ;
         {
             //ignore overloaded method
             if ( stickyInvoker != null && !invokers.contains(stickyInvoker) ){
@@ -128,7 +129,7 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
         if (invokers.size() == 2 && selected != null && selected.size() > 0) {
             return selected.get(0) == invokers.get(0) ? invokers.get(1) : invokers.get(0);
         }
-        Invoker<T> invoker = loadbalance.select(invokers, invocation);
+        Invoker<T> invoker = loadbalance.select(invokers, getUrl(), invocation);
         
         //如果 selected中包含（优先判断） 或者 不可用&&availablecheck=true 则重试.
         if( (selected != null && selected.contains(invoker))
@@ -180,7 +181,7 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
                 }
             }
             if(reselectInvokers.size()>0){
-                return  loadbalance.select(reselectInvokers, invocation);
+                return  loadbalance.select(reselectInvokers, getUrl(), invocation);
             }
         }else{ //选全部非select
             for(Invoker<T> invoker : invokers){
@@ -189,7 +190,7 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
                 }
             }
             if(reselectInvokers.size()>0){
-                return  loadbalance.select(reselectInvokers, invocation);
+                return  loadbalance.select(reselectInvokers, getUrl(), invocation);
             }
         }
         //最后从select中选可用的. 
@@ -203,7 +204,7 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
                 }
             }
             if(reselectInvokers.size()>0){
-                return  loadbalance.select(reselectInvokers, invocation);
+                return  loadbalance.select(reselectInvokers, getUrl(), invocation);
             }
         }
         return null;
@@ -211,30 +212,52 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
     
     public Result invoke(final Invocation invocation) throws RpcException {
 
-        if(destroyed){
-            throw new RpcException("Rpc invoker for " + getInterface() + " on consumer " + NetUtils.getLocalHost() 
-                    + " use dubbo version " + Version.getVersion()
-                    + " is not destroyed! Can not invoke any more.");
-        }
-        
+        checkWheatherDestoried();
+
         LoadBalance loadbalance;
         
-        List<Invoker<T>> invokers = directory.list(invocation);
+        List<Invoker<T>> invokers = list(invocation);
         if (invokers != null && invokers.size() > 0) {
             loadbalance = ExtensionLoader.getExtensionLoader(LoadBalance.class).getExtension(invokers.get(0).getUrl()
                     .getMethodParameter(invocation.getMethodName(),Constants.LOADBALANCE_KEY, Constants.DEFAULT_LOADBALANCE));
         } else {
             loadbalance = ExtensionLoader.getExtensionLoader(LoadBalance.class).getExtension(Constants.DEFAULT_LOADBALANCE);
         }
+        RpcUtils.attachInvocationIdIfAsync(getUrl(), invocation);
         return doInvoke(invocation, invokers, loadbalance);
     }
-    
+
+    protected void checkWheatherDestoried() {
+
+        if(destroyed){
+            throw new RpcException("Rpc cluster invoker for " + getInterface() + " on consumer " + NetUtils.getLocalHost()
+                    + " use dubbo version " + Version.getVersion()
+                    + " is now destroyed! Can not invoke any more.");
+        }
+    }
+
     @Override
     public String toString() {
         return getInterface() + " -> " + getUrl().toString();
+    }
+    
+    protected void checkInvokers(List<Invoker<T>> invokers, Invocation invocation) {
+        if (invokers == null || invokers.size() == 0) {
+            throw new RpcException("Failed to invoke the method "
+                    + invocation.getMethodName() + " in the service " + getInterface().getName() 
+                    + ". No provider available for the service " + directory.getUrl().getServiceKey()
+                    + " from registry " + directory.getUrl().getAddress() 
+                    + " on the consumer " + NetUtils.getLocalHost()
+                    + " using the dubbo version " + Version.getVersion()
+                    + ". Please check if the providers have been started and registered.");
+        }
     }
 
     protected abstract Result doInvoke(Invocation invocation, List<Invoker<T>> invokers,
                                        LoadBalance loadbalance) throws RpcException;
     
+    protected  List<Invoker<T>> list(Invocation invocation) throws RpcException {
+    	List<Invoker<T>> invokers = directory.list(invocation);
+    	return invokers;
+    }
 }

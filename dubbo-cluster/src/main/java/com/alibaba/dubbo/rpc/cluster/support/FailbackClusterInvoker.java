@@ -37,28 +37,25 @@ import com.alibaba.dubbo.rpc.cluster.Directory;
 import com.alibaba.dubbo.rpc.cluster.LoadBalance;
 
 /**
- * FailBackClusterInvoker.java
+ * 失败自动恢复，后台记录失败请求，定时重发，通常用于消息通知操作。
  * 
  * @author tony.chenl
  */
 public class FailbackClusterInvoker<T> extends AbstractClusterInvoker<T> {
 
+    private static final Logger logger = LoggerFactory.getLogger(FailbackClusterInvoker.class);
+
+    private static final long RETRY_FAILED_PERIOD = 5 * 1000;
+
+    private final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(2, new NamedThreadFactory("failback-cluster-timer", true));
+
+    private volatile ScheduledFuture<?> retryFuture;
+
+    private final ConcurrentMap<Invocation, AbstractClusterInvoker<?>> failed = new ConcurrentHashMap<Invocation, AbstractClusterInvoker<?>>();
+
     public FailbackClusterInvoker(Directory<T> directory){
         super(directory);
     }
-
-    private static final Logger                                        logger                   = LoggerFactory.getLogger(FailbackClusterInvoker.class);
-
-    private static final long                                          RETRY_FAILED_PERIOD      = 5 * 1000;
-
-    private final ScheduledExecutorService                             scheduledExecutorService = Executors.newScheduledThreadPool(2,
-                                                                                                                                   new NamedThreadFactory(
-                                                                                                                                                          "failback-cluster-timer",
-                                                                                                                                                          true));
-
-    private volatile ScheduledFuture<?>                                retryFuture;
-
-    private final ConcurrentMap<Invocation, AbstractClusterInvoker<?>> failed                   = new ConcurrentHashMap<Invocation, AbstractClusterInvoker<?>>();
 
     private void addFailed(Invocation invocation, AbstractClusterInvoker<?> router) {
         if (retryFuture == null) {
@@ -81,7 +78,7 @@ public class FailbackClusterInvoker<T> extends AbstractClusterInvoker<T> {
         failed.put(invocation, router);
     }
 
-     void retryFailed() {
+    void retryFailed() {
         if (failed.size() == 0) {
             return;
         }
@@ -93,17 +90,18 @@ public class FailbackClusterInvoker<T> extends AbstractClusterInvoker<T> {
                 invoker.invoke(invocation);
                 failed.remove(invocation);
             } catch (Throwable e) {
-                logger.error("Failed retry to invoke " + invocation + ", waiting again.", e);
+                logger.error("Failed retry to invoke method " + invocation.getMethodName() + ", waiting again.", e);
             }
         }
     }
 
     protected Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
-        Invoker<T> invoker = select(loadbalance, invocation, invokers, null);
         try {
+            checkInvokers(invokers, invocation);
+            Invoker<T> invoker = select(loadbalance, invocation, invokers, null);
             return invoker.invoke(invocation);
         } catch (Throwable e) {
-            logger.error("Failback to invoke " + invocation + ", wait for retry in background. Ignored exception: "
+            logger.error("Failback to invoke method " + invocation.getMethodName() + ", wait for retry in background. Ignored exception: "
                                  + e.getMessage() + ", ", e);
             addFailed(invocation, this);
             return new RpcResult(); // ignore

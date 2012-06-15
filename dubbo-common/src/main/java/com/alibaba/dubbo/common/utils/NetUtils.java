@@ -20,11 +20,13 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
+import java.net.UnknownHostException;
 import java.util.Enumeration;
 import java.util.Map;
 import java.util.Random;
 import java.util.regex.Pattern;
 
+import com.alibaba.dubbo.common.URL;
 import com.alibaba.dubbo.common.logger.Logger;
 import com.alibaba.dubbo.common.logger.LoggerFactory;
 
@@ -85,6 +87,17 @@ public class NetUtils {
     }
 
     private static final Pattern LOCAL_IP_PATTERN = Pattern.compile("127(\\.\\d{1,3}){3}$");
+    
+    public static boolean isLocalHost(String host) {
+        return host != null 
+                && (LOCAL_IP_PATTERN.matcher(host).matches() 
+                        || host.equalsIgnoreCase("localhost"));
+    }
+
+    public static boolean isAnyHost(String host) {
+        return "0.0.0.0".equals(host);
+    }
+    
     public static boolean isInvalidLocalHost(String host) {
         return host == null 
         			|| host.length() == 0
@@ -116,13 +129,28 @@ public class NetUtils {
     
     public static String getLocalHost(){
         InetAddress address = getLocalAddress();
-        return address == null ? null : address.getHostAddress();
+        return address == null ? LOCALHOST : address.getHostAddress();
     }
     
     public static String filterLocalHost(String host) {
-    	if (NetUtils.isInvalidLocalHost(host)) {
-    		return NetUtils.getLocalHost();
-    	}
+        if (host == null || host.length() == 0) {
+            return host;
+        }
+        if (host.contains("://")) {
+            URL u = URL.valueOf(host);
+            if (NetUtils.isInvalidLocalHost(u.getHost())) {
+                return u.setHost(NetUtils.getLocalHost()).toFullString();
+            }
+        } else if (host.contains(":")) {
+            int i = host.lastIndexOf(':');
+            if (NetUtils.isInvalidLocalHost(host.substring(0, i))) {
+                return NetUtils.getLocalHost() + host.substring(i);
+            }
+        } else {
+            if (NetUtils.isInvalidLocalHost(host)) {
+        		return NetUtils.getLocalHost();
+        	}
+        }
     	return host;
     }
     
@@ -134,11 +162,16 @@ public class NetUtils {
      * @return 本地网卡IP
      */
     public static InetAddress getLocalAddress() {
-    	if (LOCAL_ADDRESS != null)
-    		return LOCAL_ADDRESS;
-    	InetAddress localAddress = getLocalAddress0();
-    	LOCAL_ADDRESS = localAddress;
-    	return localAddress;
+        if (LOCAL_ADDRESS != null)
+            return LOCAL_ADDRESS;
+        InetAddress localAddress = getLocalAddress0();
+        LOCAL_ADDRESS = localAddress;
+        return localAddress;
+    }
+    
+    public static String getLogHost() {
+        InetAddress address = LOCAL_ADDRESS;
+        return address == null ? LOCALHOST : address.getHostAddress();
     }
     
     private static InetAddress getLocalAddress0() {
@@ -206,6 +239,18 @@ public class NetUtils {
 		return address;
     }
     
+    /**
+     * @param hostName
+     * @return ip address or hostName if UnknownHostException 
+     */
+    public static String getIpByHost(String hostName) {
+        try{
+            return InetAddress.getByName(hostName).getHostAddress();
+        }catch (UnknownHostException e) {
+            return hostName;
+        }
+    }
+
     public static String toAddressString(InetSocketAddress address) {
         return address.getAddress().getHostAddress() + ":" + address.getPort();
     }

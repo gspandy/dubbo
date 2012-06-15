@@ -22,7 +22,7 @@ import com.alibaba.dubbo.common.extensionloader.ext1.Ext1;
 /**
  * @author ding.lid
  */
-@Extension(value = "impl1")
+@Extension("impl1")
 public class Ext1Impl1 implements Ext1 {
     public String echo(URL url, String s) {
         return "Ext1Impl1-echo";

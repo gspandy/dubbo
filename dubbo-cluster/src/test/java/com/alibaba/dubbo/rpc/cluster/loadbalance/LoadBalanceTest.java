@@ -28,8 +28,8 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.alibaba.dubbo.common.ExtensionLoader;
 import com.alibaba.dubbo.common.URL;
+import com.alibaba.dubbo.common.extension.ExtensionLoader;
 import com.alibaba.dubbo.rpc.Invocation;
 import com.alibaba.dubbo.rpc.Invoker;
 import com.alibaba.dubbo.rpc.cluster.LoadBalance;
@@ -140,7 +140,7 @@ public class LoadBalanceTest {
             counter.put(invoker, new AtomicLong(0));
         }
         for(int i=0;i<runs;i++){
-            Invoker sinvoker = lb.select(invokers, invocation);
+            Invoker sinvoker = lb.select(invokers, invokers.get(0).getUrl(), invocation);
             counter.get(sinvoker).incrementAndGet();
         }
         return counter;

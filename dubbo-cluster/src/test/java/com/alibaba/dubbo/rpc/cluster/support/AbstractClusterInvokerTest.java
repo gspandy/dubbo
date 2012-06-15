@@ -28,15 +28,19 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.alibaba.dubbo.common.ExtensionLoader;
+import com.alibaba.dubbo.common.Constants;
 import com.alibaba.dubbo.common.URL;
+import com.alibaba.dubbo.common.extension.ExtensionLoader;
+import com.alibaba.dubbo.common.utils.NetUtils;
 import com.alibaba.dubbo.rpc.Invocation;
 import com.alibaba.dubbo.rpc.Invoker;
 import com.alibaba.dubbo.rpc.Result;
-import com.alibaba.dubbo.rpc.RpcConstants;
 import com.alibaba.dubbo.rpc.RpcException;
+import com.alibaba.dubbo.rpc.RpcInvocation;
 import com.alibaba.dubbo.rpc.cluster.Directory;
 import com.alibaba.dubbo.rpc.cluster.LoadBalance;
+import com.alibaba.dubbo.rpc.cluster.directory.StaticDirectory;
+import com.alibaba.dubbo.rpc.cluster.filter.DemoService;
 import com.alibaba.dubbo.rpc.cluster.loadbalance.LeastActiveLoadBalance;
 import com.alibaba.dubbo.rpc.cluster.loadbalance.RandomLoadBalance;
 import com.alibaba.dubbo.rpc.cluster.loadbalance.RoundRobinLoadBalance;
@@ -48,19 +52,20 @@ import com.alibaba.dubbo.rpc.cluster.loadbalance.RoundRobinLoadBalance;
  */
 @SuppressWarnings("rawtypes")
 public class AbstractClusterInvokerTest {
-    List<Invoker<AbstractClusterInvokerTest>> invokers = new ArrayList<Invoker<AbstractClusterInvokerTest>>();
-    List<Invoker<AbstractClusterInvokerTest>> selectedInvokers = new ArrayList<Invoker<AbstractClusterInvokerTest>>();
-    AbstractClusterInvoker<AbstractClusterInvokerTest> cluster;
-    AbstractClusterInvoker<AbstractClusterInvokerTest> cluster_nocheck;
-    Directory<AbstractClusterInvokerTest> dic ;
-    Invocation invocation;
+    List<Invoker<IHelloService>> invokers = new ArrayList<Invoker<IHelloService>>();
+    List<Invoker<IHelloService>> selectedInvokers = new ArrayList<Invoker<IHelloService>>();
+    AbstractClusterInvoker<IHelloService> cluster;
+    AbstractClusterInvoker<IHelloService> cluster_nocheck;
+    Directory<IHelloService> dic ;
+    RpcInvocation invocation = new RpcInvocation();
     URL url = URL.valueOf("registry://localhost:9090");
     
-    Invoker<AbstractClusterInvokerTest> invoker1 ;
-    Invoker<AbstractClusterInvokerTest> invoker2 ;
-    Invoker<AbstractClusterInvokerTest> invoker3 ;
-    Invoker<AbstractClusterInvokerTest> invoker4 ;
-    Invoker<AbstractClusterInvokerTest> invoker5 ;
+    Invoker<IHelloService> invoker1 ;
+    Invoker<IHelloService> invoker2 ;
+    Invoker<IHelloService> invoker3 ;
+    Invoker<IHelloService> invoker4 ;
+    Invoker<IHelloService> invoker5 ;
+    Invoker<IHelloService> mockedInvoker1 ;
     
 
     @BeforeClass
@@ -69,42 +74,45 @@ public class AbstractClusterInvokerTest {
     @SuppressWarnings({ "unchecked" })
     @Before
     public void setUp() throws Exception {
-        dic = EasyMock.createMock(Directory.class);
+    	invocation.setMethodName("sayHello");
         
         invoker1 = EasyMock.createMock(Invoker.class);
         invoker2 = EasyMock.createMock(Invoker.class);
         invoker3 = EasyMock.createMock(Invoker.class);
         invoker4 = EasyMock.createMock(Invoker.class);
         invoker5 = EasyMock.createMock(Invoker.class);
+        mockedInvoker1 = EasyMock.createMock(Invoker.class);
         
         URL turl = URL.valueOf("test://test:11/test");
         
         EasyMock.expect(invoker1.isAvailable()).andReturn(false).anyTimes();
-        EasyMock.expect(invoker1.getInterface()).andReturn(AbstractClusterInvokerTest.class).anyTimes();
+        EasyMock.expect(invoker1.getInterface()).andReturn(IHelloService.class).anyTimes();
         EasyMock.expect(invoker1.getUrl()).andReturn(turl.addParameter("name", "invoker1")).anyTimes();
         
         EasyMock.expect(invoker2.isAvailable()).andReturn(true).anyTimes();
-        EasyMock.expect(invoker2.getInterface()).andReturn(AbstractClusterInvokerTest.class).anyTimes();
+        EasyMock.expect(invoker2.getInterface()).andReturn(IHelloService.class).anyTimes();
         EasyMock.expect(invoker2.getUrl()).andReturn(turl.addParameter("name", "invoker2")).anyTimes();
         
         EasyMock.expect(invoker3.isAvailable()).andReturn(false).anyTimes();
-        EasyMock.expect(invoker3.getInterface()).andReturn(AbstractClusterInvokerTest.class).anyTimes();
+        EasyMock.expect(invoker3.getInterface()).andReturn(IHelloService.class).anyTimes();
         EasyMock.expect(invoker3.getUrl()).andReturn(turl.addParameter("name", "invoker3")).anyTimes();
         
         EasyMock.expect(invoker4.isAvailable()).andReturn(true).anyTimes();
-        EasyMock.expect(invoker4.getInterface()).andReturn(AbstractClusterInvokerTest.class).anyTimes();
+        EasyMock.expect(invoker4.getInterface()).andReturn(IHelloService.class).anyTimes();
         EasyMock.expect(invoker4.getUrl()).andReturn(turl.addParameter("name", "invoker4")).anyTimes();
         
         EasyMock.expect(invoker5.isAvailable()).andReturn(false).anyTimes();
-        EasyMock.expect(invoker5.getInterface()).andReturn(AbstractClusterInvokerTest.class).anyTimes();
+        EasyMock.expect(invoker5.getInterface()).andReturn(IHelloService.class).anyTimes();
         EasyMock.expect(invoker5.getUrl()).andReturn(turl.addParameter("name", "invoker5")).anyTimes();
         
-        EasyMock.expect(dic.getUrl()).andReturn(url).anyTimes();
+        EasyMock.expect(mockedInvoker1.isAvailable()).andReturn(false).anyTimes();
+        EasyMock.expect(mockedInvoker1.getInterface()).andReturn(IHelloService.class).anyTimes();
+        EasyMock.expect(mockedInvoker1.getUrl()).andReturn(turl.setProtocol("mock")).anyTimes();
         
-        invocation = EasyMock.createMock(Invocation.class);
-        EasyMock.expect(invocation.getMethodName()).andReturn("method1").anyTimes();
-        EasyMock.replay(dic,invoker1,invoker2,invoker3,invoker4,invoker5,invocation);
+        EasyMock.replay(invoker1,invoker2,invoker3,invoker4,invoker5,mockedInvoker1);
         
+        invokers.add(invoker1);
+        dic = new StaticDirectory<IHelloService>(url, invokers, null);
         cluster = new AbstractClusterInvoker(dic) {
             @Override
             protected Result doInvoke(Invocation invocation, List invokers, LoadBalance loadbalance)
@@ -113,13 +121,14 @@ public class AbstractClusterInvokerTest {
             }
         };
         
-        cluster_nocheck = new AbstractClusterInvoker(dic,url.addParameterIfAbsent(RpcConstants.CLUSTER_AVAILABLE_CHECK_KEY, Boolean.FALSE.toString())) {
+        cluster_nocheck = new AbstractClusterInvoker(dic,url.addParameterIfAbsent(Constants.CLUSTER_AVAILABLE_CHECK_KEY, Boolean.FALSE.toString())) {
             @Override
             protected Result doInvoke(Invocation invocation, List invokers, LoadBalance loadbalance)
                     throws RpcException {
                 return null;
             }
         };
+        
     }
     
     @Test
@@ -173,7 +182,7 @@ public class AbstractClusterInvokerTest {
     @Test
     public void testCloseAvailablecheck(){
         LoadBalance lb = EasyMock.createMock(LoadBalance.class);
-        EasyMock.expect(lb.select(invokers, invocation)).andReturn(invoker1);
+        EasyMock.expect(lb.select(invokers, url, invocation)).andReturn(invoker1);
         EasyMock.replay(lb);
         initlistsize5();
         
@@ -391,15 +400,70 @@ public class AbstractClusterInvokerTest {
         invokers.add(invoker4);
         invokers.add(invoker5);
     }
-    @Test
-    public void testInvoke() {
-//        fail("Not yet implemented");
-    }
+    @Test()
+    public void testTimeoutExceptionCode() {
+        List<Invoker<DemoService>> invokers = new ArrayList<Invoker<DemoService>>();
+        invokers.add(new Invoker<DemoService>() {
 
-    @Test
-    public void testDoInvoke() {
-//        fail("Not yet implemented");
-    }
+            public Class<DemoService> getInterface() {
+                return DemoService.class;
+            }
 
-    
+            public URL getUrl() {
+                return URL.valueOf("dubbo://" + NetUtils.getLocalHost() + ":20880/" + DemoService.class.getName());
+            }
+
+            public boolean isAvailable() {
+                return false;
+            }
+
+            public Result invoke(Invocation invocation) throws RpcException {
+                throw new RpcException(RpcException.TIMEOUT_EXCEPTION, "test timeout");
+            }
+
+            public void destroy() {
+            }
+        });
+        Directory<DemoService> directory = new StaticDirectory<DemoService>(invokers);
+        FailoverClusterInvoker<DemoService> failoverClusterInvoker = new FailoverClusterInvoker<DemoService>(directory);
+        try {
+            failoverClusterInvoker.invoke(new RpcInvocation("sayHello", new Class<?>[0], new Object[0]));
+            Assert.fail();
+        } catch (RpcException e) {
+            Assert.assertEquals(RpcException.TIMEOUT_EXCEPTION, e.getCode());
+        }
+        ForkingClusterInvoker<DemoService> forkingClusterInvoker = new ForkingClusterInvoker<DemoService>(directory);
+        try {
+            forkingClusterInvoker.invoke(new RpcInvocation("sayHello", new Class<?>[0], new Object[0]));
+            Assert.fail();
+        } catch (RpcException e) {
+            Assert.assertEquals(RpcException.TIMEOUT_EXCEPTION, e.getCode());
+        }
+        FailfastClusterInvoker<DemoService> failfastClusterInvoker = new FailfastClusterInvoker<DemoService>(directory);
+        try {
+            failfastClusterInvoker.invoke(new RpcInvocation("sayHello", new Class<?>[0], new Object[0]));
+            Assert.fail();
+        } catch (RpcException e) {
+            Assert.assertEquals(RpcException.TIMEOUT_EXCEPTION, e.getCode());
+        }
+    }
+	/**
+	 * 测试mock invoker选择是否正常
+	 */
+	@Test
+	public void testMockedInvokerSelect() {
+		initlistsize5();
+		invokers.add(mockedInvoker1);
+		
+		RpcInvocation mockedInvocation = new RpcInvocation();
+		mockedInvocation.setMethodName("sayHello");
+		mockedInvocation.setAttachment(Constants.INVOCATION_NEED_MOCK, "true");
+		List<Invoker<IHelloService>> mockedInvokers = dic.list(mockedInvocation);
+		Assert.assertEquals(1, mockedInvokers.size());
+		
+		List<Invoker<IHelloService>> invokers = dic.list(invocation);
+		Assert.assertEquals(5, invokers.size());
+	}
+	
+	public static interface IHelloService{}
 }

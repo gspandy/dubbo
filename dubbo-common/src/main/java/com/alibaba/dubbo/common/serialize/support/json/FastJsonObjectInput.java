@@ -21,9 +21,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.util.Map;
+import java.lang.reflect.Type;
 
 import com.alibaba.dubbo.common.serialize.ObjectInput;
+import com.alibaba.dubbo.common.utils.PojoUtils;
 import com.alibaba.fastjson.JSON;
 
 /**
@@ -111,22 +112,23 @@ public class FastJsonObjectInput implements ObjectInput {
         return readLine().getBytes();
     }
 
-    @SuppressWarnings("unchecked")
     public Object readObject() throws IOException, ClassNotFoundException {
         String json = readLine();
-        if (json.startsWith("{")) {
-            return JSON.parseObject(json, Map.class);
-        } else {
-            json = "{\"value\":" + json + "}";
-            Map<String, Object> map = JSON.parseObject(json, Map.class);
-            return map.get("value");
-        }
+        return JSON.parse(json);
     }
 
     public <T> T readObject(Class<T> cls) throws IOException, ClassNotFoundException {
-        return JSON.parseObject(readLine(), cls);
+        String json = readLine();
+        return JSON.parseObject(json, cls);
     }
-    
+
+    @SuppressWarnings("unchecked")
+    public <T> T readObject(Class<T> cls, Type type) throws IOException,ClassNotFoundException
+    {
+        Object value = readObject(cls);
+        return (T) PojoUtils.realize(value, cls, type);
+    }
+
     private String readLine() throws IOException, EOFException {
         String line = reader.readLine();
         if(line == null || line.trim().length() == 0) throw new EOFException();

@@ -15,7 +15,7 @@
  */
 package com.alibaba.dubbo.common.status.support;
 
-import com.alibaba.dubbo.common.Extension;
+import com.alibaba.dubbo.common.extension.Activate;
 import com.alibaba.dubbo.common.status.Status;
 import com.alibaba.dubbo.common.status.StatusChecker;
 
@@ -24,7 +24,7 @@ import com.alibaba.dubbo.common.status.StatusChecker;
  * 
  * @author william.liangf
  */
-@Extension("memory")
+@Activate
 public class MemoryStatusChecker implements StatusChecker {
 
     public Status check() {
@@ -34,7 +34,7 @@ public class MemoryStatusChecker implements StatusChecker {
         long maxMemory = runtime.maxMemory();
         boolean ok = (maxMemory - (totalMemory - freeMemory) > 2048); // 剩余空间小于2M报警
         String msg = "max:" + (maxMemory / 1024 / 1024) + "M,total:" 
-        + (totalMemory / 1024 / 1024) + "M,used:" + ((totalMemory / 1024 / 1024) - (freeMemory / 1024 / 1024)) + "M";
+        + (totalMemory / 1024 / 1024) + "M,used:" + ((totalMemory / 1024 / 1024) - (freeMemory / 1024 / 1024)) + "M,free:" + (freeMemory / 1024 / 1024) + "M";
         return new Status(ok ? Status.Level.OK : Status.Level.WARN, msg);
     }
 

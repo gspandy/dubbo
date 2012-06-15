@@ -86,7 +86,21 @@ public final class URL implements Serializable {
 
     private final Map<String, String> parameters;
     
-    private final transient Map<String, Number> numbers = new ConcurrentHashMap<String, Number>();
+    // ==== cache ====
+    
+    private volatile transient Map<String, Number> numbers;
+
+    private volatile transient Map<String, URL> urls;
+
+    private volatile transient String ip;
+
+    private volatile transient String full;
+
+    private volatile transient String identity;
+    
+    private volatile transient String parameter;
+
+    private volatile transient String string;
     
     protected URL() {
         this.protocol = null;
@@ -102,7 +116,7 @@ public final class URL implements Serializable {
 	    this(protocol, null, null, host, port, null, (Map<String, String>) null);
 	}
 	
-	public URL(String protocol, String host, int port, String... pairs) {
+	public URL(String protocol, String host, int port, String[] pairs) { // 变长参数...与下面的path参数冲突，改为数组
         this(protocol, null, null, host, port, null, CollectionUtils.toStringMap(pairs));
     }
 	
@@ -138,14 +152,19 @@ public final class URL implements Serializable {
 		this.protocol = protocol;
 		this.username = username;
 		this.password = password;
-		this.host = host != null && host.length() > 0 ? NetUtils.filterLocalHost(host) : host;
+		this.host = host;
 		this.port = (port < 0 ? 0 : port);
 		this.path = path;
 		// trim the beginning "/"
 		while(path != null && path.startsWith("/")) {
 		    path = path.substring(1);
 		}
-		this.parameters = Collections.unmodifiableMap(parameters != null ? new HashMap<String, String>(parameters) : new HashMap<String, String>(0));
+		if (parameters == null) {
+		    parameters = new HashMap<String, String>();
+		} else {
+		    parameters = new HashMap<String, String>(parameters);
+		}
+		this.parameters = Collections.unmodifiableMap(parameters);
 	}
 
     /**
@@ -234,18 +253,78 @@ public final class URL implements Serializable {
 	public String getPassword() {
 		return password;
 	}
+	
+	public String getAuthority() {
+	    if ((username == null || username.length() == 0)
+	            && (password == null || password.length() == 0)) {
+	        return null;
+	    }
+	    return (username == null ? "" : username) 
+	            + ":" + (password == null ? "" : password);
+	}
 
 	public String getHost() {
 		return host;
 	}
-
+	
+	/**
+	 * 获取IP地址.
+	 * 
+	 * 请注意：
+	 * 如果和Socket的地址对比，
+	 * 或用地址作为Map的Key查找，
+	 * 请使用IP而不是Host，
+	 * 否则配置域名会有问题
+	 * 
+	 * @return ip
+	 */
+	public String getIp() {
+	    if (ip == null) {
+	        ip = NetUtils.getIpByHost(host);
+	    }
+	    return ip;
+	}
+	
 	public int getPort() {
 		return port;
 	}
 
+    public int getPort(int defaultPort) {
+        return port == 0 ? defaultPort : port;
+    }
+
 	public String getAddress() {
 	    return port <= 0 ? host : host + ":" + port;
 	}
+	
+	public String getBackupAddress() {
+		return getBackupAddress(0);
+	}
+	
+	public String getBackupAddress(int defaultPort) {
+		StringBuilder address = new StringBuilder(appendDefaultPort(getAddress(), defaultPort));
+        String[] backups = getParameter(Constants.BACKUP_KEY, new String[0]);
+        if (backups != null && backups.length > 0) {
+            for (String backup : backups) {
+                address.append(",");
+                address.append(appendDefaultPort(backup, defaultPort));
+            }
+        }
+        return address.toString();
+	}
+
+    private String appendDefaultPort(String address, int defaultPort) {
+        if (address != null && address.length() > 0
+        		&& defaultPort > 0) {
+            int i = address.indexOf(':');
+            if (i < 0) {
+                return address + ":" + defaultPort;
+            } else if (Integer.parseInt(address.substring(i + 1)) == 0) {
+                return address.substring(0, i + 1) + defaultPort;
+            }
+        }
+        return address;
+    }
 
 	public String getPath() {
 		return path;
@@ -298,7 +377,7 @@ public final class URL implements Serializable {
     public Map<String, String> getParameters() {
         return parameters;
     }
-    
+
     public String getParameterAndDecoded(String key) {
         return getParameterAndDecoded(key, null);
     }
@@ -323,8 +402,44 @@ public final class URL implements Serializable {
         return value;
     }
 
+    public String[] getParameter(String key, String[] defaultValue) {
+        String value = getParameter(key);
+        if (value == null || value.length() == 0) {
+            return defaultValue;
+        }
+        return Constants.COMMA_SPLIT_PATTERN.split(value);
+    }
+    
+    private Map<String, Number> getNumbers() {
+        if (numbers == null) { // 允许并发重复创建
+            numbers = new ConcurrentHashMap<String, Number>();
+        }
+        return numbers;
+    }
+
+    private Map<String, URL> getUrls() {
+        if (urls == null) { // 允许并发重复创建
+            urls = new ConcurrentHashMap<String, URL>();
+        }
+        return urls;
+    }
+
+    public URL getUrlParameter(String key) {
+        URL u = getUrls().get(key);
+        if (u != null) {
+            return u;
+        }
+        String value = getParameterAndDecoded(key);
+        if (value == null || value.length() == 0) {
+            return null;
+        }
+        u = URL.valueOf(value);
+        getUrls().put(key, u);
+        return u;
+    }
+
     public double getParameter(String key, double defaultValue) {
-        Number n = numbers.get(key);
+        Number n = getNumbers().get(key);
         if (n != null) {
             return n.doubleValue();
         }
@@ -333,12 +448,12 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         double d = Double.parseDouble(value);
-        numbers.put(key, d);
+        getNumbers().put(key, d);
         return d;
     }
     
     public float getParameter(String key, float defaultValue) {
-        Number n = numbers.get(key);
+        Number n = getNumbers().get(key);
         if (n != null) {
             return n.floatValue();
         }
@@ -347,12 +462,12 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         float f = Float.parseFloat(value);
-        numbers.put(key, f);
+        getNumbers().put(key, f);
         return f;
     }
 
     public long getParameter(String key, long defaultValue) {
-        Number n = numbers.get(key);
+        Number n = getNumbers().get(key);
         if (n != null) {
             return n.longValue();
         }
@@ -361,12 +476,12 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         long l = Long.parseLong(value);
-        numbers.put(key, l);
+        getNumbers().put(key, l);
         return l;
     }
 
     public int getParameter(String key, int defaultValue) {
-        Number n = numbers.get(key);
+        Number n = getNumbers().get(key);
         if (n != null) {
             return n.intValue();
         }
@@ -375,12 +490,12 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         int i = Integer.parseInt(value);
-        numbers.put(key, i);
+        getNumbers().put(key, i);
         return i;
     }
 
     public short getParameter(String key, short defaultValue) {
-        Number n = numbers.get(key);
+        Number n = getNumbers().get(key);
         if (n != null) {
             return n.shortValue();
         }
@@ -389,12 +504,12 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         short s = Short.parseShort(value);
-        numbers.put(key, s);
+        getNumbers().put(key, s);
         return s;
     }
 
     public byte getParameter(String key, byte defaultValue) {
-        Number n = numbers.get(key);
+        Number n = getNumbers().get(key);
         if (n != null) {
             return n.byteValue();
         }
@@ -403,7 +518,7 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         byte b = Byte.parseByte(value);
-        numbers.put(key, b);
+        getNumbers().put(key, b);
         return b;
     }
 
@@ -494,11 +609,16 @@ public final class URL implements Serializable {
         return value != null && value.length() > 0;
     }
 
+    public String getMethodParameterAndDecoded(String method, String key) {
+        return URL.decode(getMethodParameter(method, key));
+    }
+
+    public String getMethodParameterAndDecoded(String method, String key, String defaultValue) {
+        return URL.decode(getMethodParameter(method, key, defaultValue));
+    }
+
     public String getMethodParameter(String method, String key) {
         String value = parameters.get(method + "." + key);
-        if (value == null || value.length() == 0) {
-            value = parameters.get(Constants.HIDE_KEY_PREFIX + method + "." + key);
-        }
         if (value == null || value.length() == 0) {
             return getParameter(key);
         }
@@ -515,7 +635,7 @@ public final class URL implements Serializable {
 
     public double getMethodParameter(String method, String key, double defaultValue) {
         String methodKey = method + "." + key;
-        Number n = numbers.get(methodKey);
+        Number n = getNumbers().get(methodKey);
         if (n != null) {
             return n.intValue();
         }
@@ -524,13 +644,13 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         double d = Double.parseDouble(value);
-        numbers.put(methodKey, d);
+        getNumbers().put(methodKey, d);
         return d;
     }
 
     public float getMethodParameter(String method, String key, float defaultValue) {
         String methodKey = method + "." + key;
-        Number n = numbers.get(methodKey);
+        Number n = getNumbers().get(methodKey);
         if (n != null) {
             return n.intValue();
         }
@@ -539,13 +659,13 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         float f = Float.parseFloat(value);
-        numbers.put(methodKey, f);
+        getNumbers().put(methodKey, f);
         return f;
     }
 
     public long getMethodParameter(String method, String key, long defaultValue) {
         String methodKey = method + "." + key;
-        Number n = numbers.get(methodKey);
+        Number n = getNumbers().get(methodKey);
         if (n != null) {
             return n.intValue();
         }
@@ -554,13 +674,13 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         long l = Long.parseLong(value);
-        numbers.put(methodKey, l);
+        getNumbers().put(methodKey, l);
         return l;
     }
 
     public int getMethodParameter(String method, String key, int defaultValue) {
         String methodKey = method + "." + key;
-        Number n = numbers.get(methodKey);
+        Number n = getNumbers().get(methodKey);
         if (n != null) {
             return n.intValue();
         }
@@ -569,13 +689,13 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         int i = Integer.parseInt(value);
-        numbers.put(methodKey, i);
+        getNumbers().put(methodKey, i);
         return i;
     }
 
     public short getMethodParameter(String method, String key, short defaultValue) {
         String methodKey = method + "." + key;
-        Number n = numbers.get(methodKey);
+        Number n = getNumbers().get(methodKey);
         if (n != null) {
             return n.shortValue();
         }
@@ -584,13 +704,13 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         short s = Short.parseShort(value);
-        numbers.put(methodKey, s);
+        getNumbers().put(methodKey, s);
         return s;
     }
 
     public byte getMethodParameter(String method, String key, byte defaultValue) {
         String methodKey = method + "." + key;
-        Number n = numbers.get(methodKey);
+        Number n = getNumbers().get(methodKey);
         if (n != null) {
             return n.byteValue();
         }
@@ -599,7 +719,7 @@ public final class URL implements Serializable {
             return defaultValue;
         }
         byte b = Byte.parseByte(value);
-        numbers.put(methodKey, b);
+        getNumbers().put(methodKey, b);
         return b;
     }
 
@@ -685,9 +805,35 @@ public final class URL implements Serializable {
         return Boolean.parseBoolean(value);
     }
 
-    public boolean hasMethodParamter(String method, String key) {
+    public boolean hasMethodParameter(String method, String key) {
+        if (method == null) {
+            String suffix = "." + key;
+            for (String fullKey : parameters.keySet()) {
+                if (fullKey.endsWith(suffix)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (key == null) {
+            String prefix = method + ".";
+            for (String fullKey : parameters.keySet()) {
+                if (fullKey.startsWith(prefix)) {
+                    return true;
+                }
+            }
+            return false;
+        }
         String value = getMethodParameter(method, key);
         return value != null && value.length() > 0;
+    }
+    
+    public boolean isLocalHost() {
+        return NetUtils.isLocalHost(host) || getParameter(Constants.LOCALHOST_KEY, false);
+    }
+    
+    public boolean isAnyHost() {
+        return Constants.ANYHOST_VALUE.equals(host) || getParameter(Constants.ANYHOST_KEY, false);
     }
     
     public URL addParameterAndEncoded(String key, String value) {
@@ -841,12 +987,48 @@ public final class URL implements Serializable {
         return new URL(protocol, username, password, host, port, path, map);
 	}
 	
-	public URL cleatParameters() {
+	public URL clearParameters() {
         return new URL(protocol, username, password, host, port, path, new HashMap<String, String>());
     }
-    
+	
+	public String getRawParameter(String key) {
+	    if ("protocol".equals(key))
+            return protocol;
+	    if ("username".equals(key))
+            return username;
+	    if ("password".equals(key))
+            return password;
+	    if ("host".equals(key))
+            return host;
+	    if ("port".equals(key))
+            return String.valueOf(port);
+	    if ("path".equals(key))
+            return path;
+        return getParameter(key);
+	}
+
+    public Map<String, String> toMap() {
+        Map<String, String> map = new HashMap<String, String>(parameters);
+        if (protocol != null)
+            map.put("protocol", protocol);
+        if (username != null)
+            map.put("username", username);
+        if (password != null)
+            map.put("password", password);
+        if (host != null)
+            map.put("host", host);
+        if (port > 0)
+            map.put("port", String.valueOf(port));
+        if (path != null)
+            map.put("path", path);
+        return map;
+    }
+
 	public String toString() {
-    	return buildString(false, true); // no show username and password
+	    if (string != null) {
+            return string;
+        }
+        return string = buildString(false, true); // no show username and password
     }
 
     public String toString(String... parameters) {
@@ -854,15 +1036,21 @@ public final class URL implements Serializable {
     }
     
     public String toIdentityString() {
-		return buildString(false, false); // only return identity message, see the method "equals" and "hashCode"
+        if (identity != null) {
+            return identity;
+        }
+        return identity = buildString(true, false); // only return identity message, see the method "equals" and "hashCode"
 	}
 
     public String toIdentityString(String... parameters) {
-        return buildString(false, false, parameters); // only return identity message, see the method "equals" and "hashCode"
+        return buildString(true, false, parameters); // only return identity message, see the method "equals" and "hashCode"
     }
     
 	public String toFullString() {
-		return buildString(true, true);
+	    if (full != null) {
+	        return full;
+	    }
+		return full = buildString(true, true);
 	}
 
     public String toFullString(String... parameters) {
@@ -870,7 +1058,10 @@ public final class URL implements Serializable {
     }
     
     public String toParameterString() {
-        return toParameterString(new String[0]);
+        if (parameter != null) {
+            return parameter;
+        }
+        return parameter = toParameterString(new String[0]);
     }
     
 	public String toParameterString(String... parameters) {
@@ -880,7 +1071,7 @@ public final class URL implements Serializable {
 	}
 	
 	private void buildParameters(StringBuilder buf, boolean concat, String[] parameters) {
-	    if (getParameters().size() > 0) {
+	    if (getParameters() !=null && getParameters().size() > 0) {
             List<String> includes = (parameters == null || parameters.length == 0 ? null : Arrays.asList(parameters));
             boolean first = true;
             for (Map.Entry<String, String> entry : new TreeMap<String, String>(getParameters()).entrySet()) {
@@ -946,7 +1137,7 @@ public final class URL implements Serializable {
     }
 
     public String getServiceKey() {
-        String inf = getServiceName();
+        String inf = getServiceInterface();
         if (inf == null) return null;
         StringBuilder buf = new StringBuilder();
         String group = getParameter(Constants.GROUP_KEY);
@@ -960,55 +1151,21 @@ public final class URL implements Serializable {
         }
         return buf.toString();
     }
-    
+
+    @Deprecated
     public String getServiceName() {
+        return getServiceInterface();
+    }
+
+    public String getServiceInterface() {
         return getParameter(Constants.INTERFACE_KEY, path);
     }
-    
-    public String getServiceUrl() {
-        return toFullString(Constants.GROUP_KEY, Constants.VERSION_KEY);
+
+    public URL setServiceInterface(String service) {
+        return addParameter(Constants.INTERFACE_KEY, service);
     }
-    
-	public int hashCode() {
-		final int prime = 31;
-		int result = 1;
-		result = prime * result + ((host == null) ? 0 : host.hashCode());
-		result = prime * result + ((path == null) ? 0 : path.hashCode());
-		result = prime * result + port;
-		result = prime * result
-				+ ((protocol == null) ? 0 : protocol.hashCode());
-		return result;
-	}
 
-	public boolean equals(Object obj) {
-		if (this == obj)
-			return true;
-		if (obj == null)
-			return false;
-		if (getClass() != obj.getClass())
-			return false;
-		URL other = (URL) obj;
-		if (host == null) {
-			if (other.host != null)
-				return false;
-		} else if (!host.equals(other.host))
-			return false;
-		if (path == null) {
-			if (other.path != null)
-				return false;
-		} else if (!path.equals(other.path))
-			return false;
-		if (port != other.port)
-			return false;
-		if (protocol == null) {
-			if (other.protocol != null)
-				return false;
-		} else if (!protocol.equals(other.protocol))
-			return false;
-		return true;
-	}
-
-	/**
+    /**
      * @deprecated Replace to <code>getParameter(String, int)</code>
      * @see #getParameter(String, int)
      */
@@ -1054,8 +1211,8 @@ public final class URL implements Serializable {
 	}
 
 	/**
-     * @deprecated Replace to <code>getMethodParameter(String, int)</code>
-     * @see #getMethodParameter(String, int)
+     * @deprecated Replace to <code>getMethodParameter(String, String, int)</code>
+     * @see #getMethodParameter(String, String, int)
      */
     @Deprecated
     public int getMethodIntParameter(String method, String key) {
@@ -1063,8 +1220,8 @@ public final class URL implements Serializable {
     }
 
     /**
-     * @deprecated Replace to <code>getMethodParameter(String, int)</code>
-     * @see #getMethodParameter(String, int)
+     * @deprecated Replace to <code>getMethodParameter(String, String, int)</code>
+     * @see #getMethodParameter(String, String, int)
      */
     @Deprecated
     public int getMethodIntParameter(String method, String key, int defaultValue) {
@@ -1072,8 +1229,8 @@ public final class URL implements Serializable {
     }
 
     /**
-     * @deprecated Replace to <code>getMethodPositiveParameter(String, int)</code>
-     * @see #getMethodPositiveParameter(String, int)
+     * @deprecated Replace to <code>getMethodPositiveParameter(String, String, int)</code>
+     * @see #getMethodPositiveParameter(String, String, int)
      */
     @Deprecated
     public int getMethodPositiveIntParameter(String method, String key, int defaultValue) {
@@ -1081,8 +1238,8 @@ public final class URL implements Serializable {
     }
 
     /**
-     * @deprecated Replace to <code>getMethodParameter(String, boolean)</code>
-     * @see #getMethodParameter(String, boolean)
+     * @deprecated Replace to <code>getMethodParameter(String, String, boolean)</code>
+     * @see #getMethodParameter(String, String, boolean)
      */
     @Deprecated
     public boolean getMethodBooleanParameter(String method, String key) {
@@ -1090,8 +1247,8 @@ public final class URL implements Serializable {
     }
 
     /**
-     * @deprecated Replace to <code>getMethodParameter(String, boolean)</code>
-     * @see #getMethodParameter(String, boolean)
+     * @deprecated Replace to <code>getMethodParameter(String, String, boolean)</code>
+     * @see #getMethodParameter(String, String, boolean)
      */
     @Deprecated
     public boolean getMethodBooleanParameter(String method, String key, boolean defaultValue) {
@@ -1119,5 +1276,63 @@ public final class URL implements Serializable {
             throw new RuntimeException(e.getMessage(), e);
         }
     }
-    
+
+    @Override
+    public int hashCode() {
+        final int prime = 31;
+        int result = 1;
+        result = prime * result + ((host == null) ? 0 : host.hashCode());
+        result = prime * result + ((parameters == null) ? 0 : parameters.hashCode());
+        result = prime * result + ((password == null) ? 0 : password.hashCode());
+        result = prime * result + ((path == null) ? 0 : path.hashCode());
+        result = prime * result + port;
+        result = prime * result + ((protocol == null) ? 0 : protocol.hashCode());
+        result = prime * result + ((username == null) ? 0 : username.hashCode());
+        return result;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        URL other = (URL) obj;
+        if (host == null) {
+            if (other.host != null)
+                return false;
+        } else if (!host.equals(other.host))
+            return false;
+        if (parameters == null) {
+            if (other.parameters != null)
+                return false;
+        } else if (!parameters.equals(other.parameters))
+            return false;
+        if (password == null) {
+            if (other.password != null)
+                return false;
+        } else if (!password.equals(other.password))
+            return false;
+        if (path == null) {
+            if (other.path != null)
+                return false;
+        } else if (!path.equals(other.path))
+            return false;
+        if (port != other.port)
+            return false;
+        if (protocol == null) {
+            if (other.protocol != null)
+                return false;
+        } else if (!protocol.equals(other.protocol))
+            return false;
+        if (username == null) {
+            if (other.username != null)
+                return false;
+        } else if (!username.equals(other.username))
+            return false;
+        return true;
+    }
+
 }

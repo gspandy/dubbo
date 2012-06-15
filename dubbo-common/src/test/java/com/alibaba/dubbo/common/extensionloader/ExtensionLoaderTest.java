@@ -26,13 +26,23 @@ import static org.junit.matchers.JUnitMatchers.containsString;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.alibaba.dubbo.common.Constants;
+import com.alibaba.dubbo.common.extensionloader.activate.ActivateExt1;
+import com.alibaba.dubbo.common.extensionloader.activate.impl.ActivateExt1Impl1;
+import com.alibaba.dubbo.common.extensionloader.activate.impl.GroupActivateExtImpl;
+import com.alibaba.dubbo.common.extensionloader.activate.impl.OrderActivateExtImpl1;
+import com.alibaba.dubbo.common.extensionloader.activate.impl.OrderActivateExtImpl2;
+import com.alibaba.dubbo.common.extensionloader.activate.impl.ValueActivateExtImpl;
+import junit.framework.Assert;
+
 import org.junit.Test;
 
-import com.alibaba.dubbo.common.ExtensionLoader;
 import com.alibaba.dubbo.common.URL;
+import com.alibaba.dubbo.common.extension.ExtensionLoader;
 import com.alibaba.dubbo.common.extensionloader.ext1.Ext1;
 import com.alibaba.dubbo.common.extensionloader.ext1.impl.Ext1Impl1;
 import com.alibaba.dubbo.common.extensionloader.ext1.impl.Ext1Impl2;
@@ -45,6 +55,8 @@ import com.alibaba.dubbo.common.extensionloader.ext5.impl.Ext5Wrapper1;
 import com.alibaba.dubbo.common.extensionloader.ext5.impl.Ext5Wrapper2;
 import com.alibaba.dubbo.common.extensionloader.ext6_inject.Ext6;
 import com.alibaba.dubbo.common.extensionloader.ext6_inject.impl.Ext6Impl2;
+import com.alibaba.dubbo.common.extensionloader.ext7.Ext7;
+import com.alibaba.dubbo.common.utils.LogUtil;
 
 /**
  * @author ding.lid
@@ -157,8 +169,16 @@ public class ExtensionLoaderTest {
     
     @Test
     public void test_getSupportedExtensions_NoExtension() throws Exception {
-        Set<String> exts = ExtensionLoader.getExtensionLoader(ExtensionLoaderTest.class).getSupportedExtensions();
-        assertEquals(0, exts.size());
+        try {
+            ExtensionLoader.getExtensionLoader(ExtensionLoaderTest.class).getSupportedExtensions();
+            fail();
+        } catch (IllegalArgumentException expected) {
+            assertThat(expected.getMessage(), 
+                    allOf(containsString("com.alibaba.dubbo.common.extensionloader.ExtensionLoaderTest"),
+                            containsString("is not extension"),
+                            containsString("WITHOUT @SPI Annotation")));
+       
+        }
     }
     
     @Test
@@ -401,6 +421,7 @@ public class ExtensionLoaderTest {
     
     @Test
     public void test_getAdaptiveExtension_inject() throws Exception {
+        LogUtil.start();
         Ext6 ext = ExtensionLoader.getExtensionLoader(Ext6.class).getAdaptiveExtension();
 
         URL url = new URL("p1", "1.2.3.4", 1010, "path1");
@@ -408,8 +429,12 @@ public class ExtensionLoaderTest {
         
         assertEquals("Ext6Impl1-echo-Ext1Impl1-echo", ext.echo(url, "ha"));
         
+        Assert.assertTrue("can not find error.", LogUtil.checkNoError());
+        LogUtil.stop();
+        
         url = url.addParameters("ext1", "impl2");
         assertEquals("Ext6Impl1-echo-Ext1Impl2-echo", ext.echo(url, "ha"));
+        
     }
     
     @Test
@@ -419,4 +444,73 @@ public class ExtensionLoaderTest {
         Ext6Impl2 impl = (Ext6Impl2) ext;
         assertNull(impl.getList());
     }
+    
+    @Test
+    public void test_InitError() throws Exception {
+        ExtensionLoader<Ext7> loader = ExtensionLoader.getExtensionLoader(Ext7.class);
+        
+        loader.getExtension("ok");
+        
+        try {
+            loader.getExtension("error");
+            fail();
+        } catch (IllegalStateException expected) {
+            assertThat(expected.getMessage(), containsString("Failed to load extension class(interface: interface com.alibaba.dubbo.common.extensionloader.ext7.Ext7"));
+            assertThat(expected.getCause(), instanceOf(ExceptionInInitializerError.class));
+        }
+    }
+
+    @Test
+    public void testLoadActivateExtension() throws Exception {
+        // test default
+        URL url = URL.valueOf("test://localhost/test");
+        List<ActivateExt1> list = ExtensionLoader.getExtensionLoader(ActivateExt1.class)
+                .getActivateExtension(url, new String[]{}, "default_group");
+        Assert.assertEquals(1, list.size());
+        Assert.assertTrue(list.get(0).getClass() == ActivateExt1Impl1.class);
+
+        // test group
+        url = url.addParameter(Constants.GROUP_KEY, "group1");
+        list = ExtensionLoader.getExtensionLoader(ActivateExt1.class)
+                .getActivateExtension(url, new String[]{}, "group1");
+        Assert.assertEquals(1, list.size());
+        Assert.assertTrue(list.get(0).getClass() == GroupActivateExtImpl.class);
+
+        // test value
+        url = url.removeParameter(Constants.GROUP_KEY);
+        url = url.addParameter(Constants.GROUP_KEY, "value");
+        url = url.addParameter("value", "value");
+        list = ExtensionLoader.getExtensionLoader(ActivateExt1.class)
+                .getActivateExtension(url, new String[]{}, "value");
+        Assert.assertEquals(1, list.size());
+        Assert.assertTrue(list.get(0).getClass() == ValueActivateExtImpl.class);
+
+        // test order
+        url = URL.valueOf("test://localhost/test");
+        url = url.addParameter(Constants.GROUP_KEY, "order");
+        list = ExtensionLoader.getExtensionLoader(ActivateExt1.class)
+                .getActivateExtension(url, new String[]{}, "order");
+        Assert.assertEquals(2, list.size());
+        Assert.assertTrue(list.get(0).getClass() == OrderActivateExtImpl1.class);
+        Assert.assertTrue(list.get(1).getClass() == OrderActivateExtImpl2.class);
+    }
+
+    @Test
+    public void testLoadDefaultActivateExtension() throws Exception {
+        // test default
+        URL url = URL.valueOf("test://localhost/test?ext=order1,default");
+        List<ActivateExt1> list = ExtensionLoader.getExtensionLoader(ActivateExt1.class)
+                .getActivateExtension(url, "ext", "default_group");
+        Assert.assertEquals(2, list.size());
+        Assert.assertTrue(list.get(0).getClass() == OrderActivateExtImpl1.class);
+        Assert.assertTrue(list.get(1).getClass() == ActivateExt1Impl1.class);
+        
+        url = URL.valueOf("test://localhost/test?ext=default,order1");
+        list = ExtensionLoader.getExtensionLoader(ActivateExt1.class)
+                .getActivateExtension(url, "ext", "default_group");
+        Assert.assertEquals(2, list.size());
+        Assert.assertTrue(list.get(0).getClass() == ActivateExt1Impl1.class);
+        Assert.assertTrue(list.get(1).getClass() == OrderActivateExtImpl1.class);
+    }
+
 }

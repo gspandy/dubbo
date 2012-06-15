@@ -22,7 +22,6 @@ import com.alibaba.dubbo.rpc.Invocation;
 import com.alibaba.dubbo.rpc.Invoker;
 import com.alibaba.dubbo.rpc.RpcException;
 import com.alibaba.dubbo.rpc.cluster.Router;
-import com.alibaba.dubbo.rpc.cluster.support.AbstractDirectory;
 
 /**
  * StaticDirectory
@@ -57,7 +56,9 @@ public class StaticDirectory<T> extends AbstractDirectory<T> {
     }
 
     public boolean isAvailable() {
-        if (destroyed) return false;
+        if (isDestroyed()) {
+            return false;
+        }
         for (Invoker<T> invoker : invokers) {
             if (invoker.isAvailable()) {
                 return true;
@@ -67,7 +68,7 @@ public class StaticDirectory<T> extends AbstractDirectory<T> {
     }
 
     public void destroy() {
-        if(destroyed) {
+        if(isDestroyed()) {
             return;
         }
         super.destroy();

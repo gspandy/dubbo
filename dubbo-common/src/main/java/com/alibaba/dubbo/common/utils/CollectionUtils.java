@@ -16,6 +16,7 @@
 package com.alibaba.dubbo.common.utils;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -123,6 +124,17 @@ public class CollectionUtils {
 		return list;
 	}
 
+	public static String join(List<String> list, String separator) {
+	    StringBuilder sb = new StringBuilder();
+        for(String ele : list) {
+            if(sb.length() > 0) {
+                sb.append(separator);
+            }
+            sb.append(ele);
+        }
+        return sb.toString();
+	}
+	
 	public static boolean mapEquals(Map<?, ?> map1, Map<?, ?> map2) {
 		if (map1 == null && map2 == null) {
 			return true;
@@ -182,6 +194,14 @@ public class CollectionUtils {
 	    return ret;
 	}
 	
+    public static boolean isEmpty(Collection<?> collection) {
+        return collection == null || collection.size() == 0;
+    }
+    
+    public static boolean isNotEmpty(Collection<?> collection) {
+        return collection != null && collection.size() > 0;
+	}
+
 	private CollectionUtils() {
 	}
 
